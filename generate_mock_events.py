@@ -111,6 +111,15 @@ def read_ids_from_csv(path: Path, col: str) -> List[str]:
             sys.exit(f"No '{col}' values found in {path}.")
         return ids
 
+def read_ids_optional(path: Path, col: str) -> List[str]:
+    if not path.exists():
+        return []
+    with path.open("r", encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f)
+        if not reader.fieldnames or col not in reader.fieldnames:
+            return []
+        return [str(row.get(col, "")).strip() for row in reader if str(row.get(col, "")).strip()]
+
 def pick_event_name(fake: Faker, rng: random.Random) -> str:
     suffix = rng.choice([
         "Challenge","Classic","Championship","Cup","Derby","Finals","Invitational","Invite","Open","Series","Showcase"
@@ -143,7 +152,7 @@ def generate(events_count: int, teams_per_event: int, team_ids: List[str], venue
             "event_id": eid,
             "event_name": pick_event_name(fake, rng),
             "event_date": pick_event_date(rng),
-            "event_venue_id": rng.choice(venue_ids),
+            "event_venue_id": (rng.choice(venue_ids) if venue_ids else ""),
             "event_start_time": pick_start_time(rng),
         })
         for tid in rng.sample(team_ids, k=teams_per_event):
@@ -166,7 +175,7 @@ def main() -> int:
     teams_per_event = args.teams_per_event if args.teams_per_event is not None else prompt_int("How many teams per event?", 2)
 
     team_ids = read_ids_from_csv(args.teams_csv, "team_id")
-    venue_ids = read_ids_from_csv(args.venues_csv, "venue_id")
+    venue_ids = read_ids_optional(args.venues_csv, "venue_id")
 
     events_rows, join_rows = generate(events_count, teams_per_event, team_ids, venue_ids,
                                       args.start_event_id, fake, rng)

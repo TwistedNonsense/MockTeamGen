@@ -137,7 +137,7 @@ def build_unique_email(fake: Faker, full_name: str, seen_emails: Set[str]) -> st
 
 def build_unique_phone(fake: Faker, seen_phones: Set[str]) -> str:
     def gen():
-        return fake.numerify("555-###-####")
+        return fake.numerify("(###) ###-####")
     return ensure_unique(gen, seen_phones)
 
 def generate_users(team_ids: Iterable[str], start_user_id: int, fake: Faker) -> List[dict]:
