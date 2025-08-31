@@ -4,6 +4,7 @@
 
 import os
 import sys
+import re
 import threading
 import queue
 from pathlib import Path
@@ -44,6 +45,23 @@ def _run_stream(cmd, on_line):
     for line in proc.stdout:  # type: ignore[union-attr]
         on_line(line.rstrip("\n"))
     return proc.wait()
+
+def _humanize_log_line(line: str) -> str:
+    s = line
+    # Step starts
+    s = re.sub(r"^\[teams] starting…$", "▶ Starting mock team generation…", s)
+    s = re.sub(r"^\[venues] starting…$", "▶ Starting mock venue generation…", s)
+    s = re.sub(r"^\[users] starting…$", "▶ Starting mock user generation…", s)
+    s = re.sub(r"^\[events] starting…$", "▶ Starting mock event generation…", s)
+    # Generator summaries
+    s = re.sub(r"^Wrote (\d+) teams to (.+)$", r"✔ Successfully generated \1 mock teams. Saved to \2", s)
+    s = re.sub(r"^Wrote (\d+) venues to (.+)$", r"✔ Successfully generated \1 mock venues. Saved to \2", s)
+    s = re.sub(r"^Wrote (\d+) users to (.+)$", r"✔ Successfully generated \1 mock users. Saved to \2", s)
+    s = re.sub(r"^Wrote (\d+) events to (.+)$", r"✔ Successfully generated \1 mock events. Saved to \2", s)
+    s = re.sub(r"^Wrote (\d+) event-team rows to (.+)$", r"Linked \1 teams to events. Join table saved to \2", s)
+    if re.search(r"\berror\b", s, flags=re.I):
+        s = f"❌ {s}"
+    return s
 
 # runners 
 def run_teams(teams_count: int, output_dir: str, on_line):
@@ -245,13 +263,14 @@ class App(tk.Tk):
 
     # logging 
     def _append_log(self, line: str):
+        """UI-thread writer. Do not call directly; use _enqueue_log."""
         self.log.configure(state="normal")
         self.log.insert("end", line + "\n")
         self.log.see("end")
         self.log.configure(state="disabled")
 
     def _enqueue_log(self, line: str):
-        self.log_queue.put(line)
+        self.log_queue.put(_humanize_log_line(line))
 
     def _drain_log(self):
         try:
@@ -292,22 +311,51 @@ class App(tk.Tk):
             return
 
         self.run_btn.configure(state="disabled")
-        self._append_log("=== Run started ===")
+        self._enqueue_log("╔══════════════════════════════════════╗")
+        self._enqueue_log("║     Mock data generation started     ║")
+        self._enqueue_log("╚══════════════════════════════════════╝")
 
         def worker():
             rc_total = 0
+
+            friendly_name = {
+                "teams": "teams",
+                "venues": "venues",
+                "users": "users",
+                "events": "events",
+            }
+            start_msg = {
+                "teams":  "┣━━━ Starting mock team generation  ━━━┫",
+                "venues": "┣━━━ Starting mock venue generation ━━━┫",
+                "users":  "┣━━━ Starting mock user generation  ━━━┫",
+                "events": "┣━━━ Starting mock event generation ━━━┫",
+            }
+
             for name, fn, kwargs in plan:
-                self._enqueue_log(f"[{name}] starting…")
+                self._enqueue_log(start_msg.get(name, f"▶ Starting {friendly_name.get(name, name)}…"))
+
                 def on_line(s): self._enqueue_log(s)
+
                 try:
                     rc = fn(on_line=on_line, **kwargs)
                 except TypeError:
-                    rc = fn(**kwargs)  # type: ignore[misc]
-                self._enqueue_log(f"[{name}] exit code {rc}")
+                    rc = fn(**kwargs)  # fallback if runner lacks on_line
+
+                if (rc or 0) == 0:
+                    self._enqueue_log(f"✔ Finished {friendly_name.get(name, name)}.")
+                else:
+                    self._enqueue_log(f"❌ {friendly_name.get(name, name).capitalize()} failed. Exit code {rc}")
                 rc_total |= (rc or 0)
+
+            # Summary block
+            ok = (rc_total == 0)
+            self._enqueue_log("╔══════════════════════════════════════╗")
+            self._enqueue_log(("║   All tasks completed successfully   ║" if ok
+                        else   "║         Finished with errors         ║"))
+            self._enqueue_log("╚══════════════════════════════════════╝")
+            
             result_text = "Generation completed successfully" if rc_total == 0 else "Generation finished with errors"
             color = "green" if rc_total == 0 else "red"
-            self._enqueue_log(f"=== Run finished. overall={'OK' if rc_total == 0 else 'ERRORS'} ===")
             self.status_label.after(0, lambda: self.status_label.configure(text=result_text, foreground=color))
             self.run_btn.configure(state="normal")
 
