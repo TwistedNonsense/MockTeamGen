@@ -78,6 +78,4 @@ credentials.json
 # other file types or directories
 .terraform/
 dev-stuff/
-mock_teams*.csv
-mock_venues*.csv
-mock_users*.csv
+mock_*.csv
