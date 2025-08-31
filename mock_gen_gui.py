@@ -1,0 +1,321 @@
+# mock_gen_gui.py
+
+# Simple GUI to run teams/venues/users/events generators.
+
+import os
+import sys
+import threading
+import queue
+from pathlib import Path
+import importlib.util
+import subprocess
+import tkinter as tk
+from tkinter import ttk, filedialog, messagebox
+
+HERE = Path(__file__).resolve().parent
+
+# import-or-subprocess 
+def _try_import_module(mod_name: str, file_name: str):
+    p = HERE / file_name
+    if not p.exists():
+        return None
+    spec = importlib.util.spec_from_file_location(mod_name, str(p))
+    if not spec or not spec.loader:
+        return None
+    mod = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(mod)  # type: ignore[attr-defined]
+        return mod
+    except Exception:
+        return None
+
+def _preferred_callable(mod, names):
+    for n in names:
+        fn = getattr(mod, n, None)
+        if callable(fn):
+            return fn
+    return None
+
+def _run_stream(cmd, on_line):
+    proc = subprocess.Popen(
+        cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1
+    )
+    for line in proc.stdout:  # type: ignore[union-attr]
+        on_line(line.rstrip("\n"))
+    return proc.wait()
+
+# runners 
+def run_teams(teams_count: int, output_dir: str, on_line):
+    script = HERE / "generate_mock_teams.py"
+    if not script.exists():
+        on_line("[teams] ERROR: generate_mock_teams.py not found")
+        return 1
+
+    teams_out = str(Path(output_dir) / "mock_teams.csv")
+    cmd = [
+        sys.executable, str(script),
+        "--num-teams", str(teams_count),
+        "--out", teams_out,
+    ]
+    return _run_stream(cmd, on_line)
+
+def run_users(output_dir: str, users_count: int | None, on_line=None):
+    # users_count not required by CLI. I'm putting here for future flexibility
+    mod = _try_import_module("generate_mock_users", "generate_mock_users.py")
+    fn = _preferred_callable(mod, ["generate", "main", "run"]) if mod else None
+    if fn:
+        try:
+            fn(users_count=users_count or 0, output_dir=output_dir)  # type: ignore[arg-type]
+            if on_line: on_line("[users] completed via callable")
+            return 0
+        except TypeError:
+            try:
+                fn(users_count or 0, output_dir)  # type: ignore[misc]
+                if on_line: on_line("[users] completed via callable")
+                return 0
+            except Exception as e:
+                if on_line: on_line(f"[users] callable failed: {e!r}; falling back to subprocess")
+
+    script = HERE / "generate_mock_users.py"
+    if not script.exists():
+        if on_line: on_line("[users] ERROR: generate_mock_users.py not found")
+        return 1
+
+    teams_csv = str(Path(output_dir) / "mock_teams.csv")
+    out_csv = str(Path(output_dir) / "mock_users.csv")
+    cmd = [
+        sys.executable, str(script),
+        "--teams-csv", teams_csv,
+        "--out", out_csv,
+    ]
+    return _run_stream(cmd, on_line or (lambda s: None))
+
+def run_venues(output_dir: str, on_line):
+    script = HERE / "generate_mock_venues.py"
+    if not script.exists():
+        on_line("[venues] ERROR: generate_mock_venues.py not found"); return 1
+    teams_csv = str(Path(output_dir)/"mock_teams.csv")
+    venues_out = str(Path(output_dir)/"mock_venues.csv")
+    cmd=[sys.executable,str(script),"--teams-csv",teams_csv,"--out",venues_out]
+    return _run_stream(cmd,on_line or (lambda s: None))
+
+def run_events(output_dir: str, events_count: int, teams_per_event: int, on_line=None):
+    mod = _try_import_module("generate_mock_events", "generate_mock_events.py")
+    fn = _preferred_callable(mod, ["generate", "main", "run"]) if mod else None
+    if fn:
+        try:
+            if on_line: on_line("[events] callable detected; falling back to CLI to ensure file paths are honored")
+        except Exception:
+            pass  # we’ll use subprocess to guarantee filenames
+
+    script = HERE / "generate_mock_events.py"
+    if not script.exists():
+        if on_line: on_line("[events] ERROR: generate_mock_events.py not found")
+        return 1
+
+    teams_csv = str(Path(output_dir) / "mock_teams.csv")
+    venues_csv = str(Path(output_dir) / "mock_venues.csv")
+    events_out = str(Path(output_dir) / "mock_events.csv")
+    join_out = str(Path(output_dir) / "mock_events-teams.csv")
+
+    cmd = [
+        sys.executable, str(script),
+        "--teams-csv", teams_csv,
+        "--venues-csv", venues_csv,
+        "--events-out", events_out,
+        "--join-out", join_out,
+        "--num-events", str(events_count),
+        "--teams-per-event", str(teams_per_event),
+    ]
+    return _run_stream(cmd, on_line or (lambda s: None))
+
+# GUI 
+class App(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        self.title("Mock Data Studio")
+        self.geometry("760x640")
+        self.minsize(720, 600)
+
+        # state
+        self.output_dir = tk.StringVar(value=str(HERE))
+        self.teams_count = tk.IntVar(value=50)
+        self.users_count = tk.IntVar(value=200)  # not used by CLI but kept for parity
+        self.events_count = tk.IntVar(value=20)
+        self.teams_per_event = tk.IntVar(value=2)
+
+        self.run_teams_var = tk.BooleanVar(value=True)
+        self.run_users_var = tk.BooleanVar(value=True)
+        self.run_events_var = tk.BooleanVar(value=True)
+        self.run_venues_var = tk.BooleanVar(value=True)
+
+        self._build_ui()
+
+        self.log_queue = queue.Queue()
+        self.after(50, self._drain_log)
+
+    # UI build 
+    def _build_ui(self):
+        nb = ttk.Notebook(self)
+        nb.pack(fill="both", expand=True, padx=10, pady=10)
+
+        options = ttk.Frame(nb)
+        logtab = ttk.Frame(nb)
+        nb.add(options, text="Options")
+        nb.add(logtab, text="Log")
+
+        # Options tab
+        self._build_options(options)
+
+        # Log tab
+        lf = ttk.LabelFrame(logtab, text="Run log")
+        lf.pack(fill="both", expand=True, padx=12, pady=12)
+        self.log = tk.Text(lf, height=20, wrap="word", state="disabled")
+        self.log.pack(fill="both", expand=True, padx=8, pady=8)
+
+    def _build_options(self, parent):
+        # Output dir
+        outf = ttk.LabelFrame(parent, text="Output")
+        outf.pack(fill="x", padx=12, pady=(12, 8))
+        e = ttk.Entry(outf, textvariable=self.output_dir)
+        e.pack(side="left", fill="x", expand=True, padx=(12, 6), pady=12)
+        ttk.Button(outf, text="Browse…", command=self._pick_folder).pack(side="left", padx=(6, 12), pady=12)
+
+        # Teams
+        tf = ttk.LabelFrame(parent, text="Teams")
+        tf.pack(fill="x", padx=12, pady=8)
+        ttk.Checkbutton(tf, text="Generate teams", variable=self.run_teams_var, command=self._toggle_states)\
+            .grid(row=0, column=0, sticky="w", padx=12, pady=(10, 6))
+        ttk.Label(tf, text="Number of teams:").grid(row=1, column=0, sticky="w", padx=12)
+        self.sb_teams = ttk.Spinbox(tf, from_=1, to=100000, textvariable=self.teams_count, width=12)
+        self.sb_teams.grid(row=1, column=1, sticky="w", padx=12)
+        tf.grid_columnconfigure(2, weight=1)
+
+        # Venues
+        vf = ttk.LabelFrame(parent, text="Venues")
+        vf.pack(fill="x", padx=12, pady=8)
+        ttk.Checkbutton(vf,text="Generate venues",variable=self.run_venues_var,command=self._toggle_states)\
+            .grid(row=0,column=0,sticky="w",padx=12,pady=(10,6))
+        ttk.Label(vf,text="(Each team will get a venue)").grid(row=1,column=0,sticky="w",padx=12,pady=(0,8))
+        
+        # Users
+        uf = ttk.LabelFrame(parent, text="Users")
+        uf.pack(fill="x", padx=12, pady=8)
+        ttk.Checkbutton(uf, text="Generate users", variable=self.run_users_var, command=self._toggle_states)\
+            .grid(row=0, column=0, sticky="w", padx=12, pady=(10, 6))
+        ttk.Label(uf, text="(Each team will get a Team Admin, Coach, Assistant Coach, Venue Admin, & Event Admin)").grid(row=1, column=0, sticky="w", padx=12, pady=(0, 8))
+
+        # Events
+        ef = ttk.LabelFrame(parent, text="Events")
+        ef.pack(fill="x", padx=12, pady=8)
+        ttk.Checkbutton(ef, text="Generate events", variable=self.run_events_var, command=self._toggle_states)\
+            .grid(row=0, column=0, sticky="w", padx=12, pady=(10, 6))
+        ttk.Label(ef, text="Number of events:").grid(row=1, column=0, sticky="w", padx=12)
+        self.sb_events = ttk.Spinbox(ef, from_=1, to=100000, textvariable=self.events_count, width=12)
+        self.sb_events.grid(row=1, column=1, sticky="w", padx=12)
+
+        ttk.Label(ef, text="Teams per event:").grid(row=2, column=0, sticky="w", padx=12, pady=(4, 10))
+        self.sb_tpe = ttk.Spinbox(ef, from_=1, to=64, textvariable=self.teams_per_event, width=12)
+        self.sb_tpe.grid(row=2, column=1, sticky="w", padx=12, pady=(4, 10))
+
+        # Run button at bottom
+        runbar = ttk.Frame(parent)
+        runbar.pack(fill="x", padx=12, pady=(10, 14))
+        self.run_btn = ttk.Button(runbar, text="Run selected", command=self._on_run)
+        self.run_btn.pack(side="left")
+        ttk.Button(runbar, text="Open output folder", command=self._open_output).pack(side="left", padx=8)
+
+        self._toggle_states()
+
+    # state helpers 
+    def _toggle_states(self):
+        # Enable/disable inputs based on checkboxes
+        for w, flag in [(self.sb_teams, self.run_teams_var.get()),
+                        (self.sb_events, self.run_events_var.get()),
+                        (self.sb_tpe, self.run_events_var.get())]:
+            try:
+                w.configure(state=("normal" if flag else "disabled"))
+            except tk.TclError:
+                pass
+
+    def _pick_folder(self):
+        path = filedialog.askdirectory(initialdir=self.output_dir.get() or str(HERE))
+        if path:
+            self.output_dir.set(path)
+
+    # logging 
+    def _append_log(self, line: str):
+        self.log.configure(state="normal")
+        self.log.insert("end", line + "\n")
+        self.log.see("end")
+        self.log.configure(state="disabled")
+
+    def _enqueue_log(self, line: str):
+        self.log_queue.put(line)
+
+    def _drain_log(self):
+        try:
+            while True:
+                self._append_log(self.log_queue.get_nowait())
+        except queue.Empty:
+            pass
+        self.after(50, self._drain_log)
+
+    # actions 
+    def _on_run(self):
+        outdir = Path(self.output_dir.get()).expanduser().resolve()
+        try:
+            outdir.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+            messagebox.showerror("Error", f"Cannot create output directory:\n{e}")
+            return
+
+        plan = []
+        if self.run_teams_var.get():
+            plan.append(("teams", run_teams, dict(teams_count=self.teams_count.get(),
+                                                  output_dir=str(outdir))))
+        if getattr(self, "run_venues_var", tk.BooleanVar(value=True)).get():
+            plan.append(("venues", run_venues, dict(output_dir=str(outdir))))
+
+        if self.run_users_var.get():
+            plan.append(("users", run_users, dict(output_dir=str(outdir),
+                                                  users_count=self.users_count.get())))
+        if self.run_events_var.get():
+            plan.append(("events", run_events, dict(output_dir=str(outdir),
+                                                    events_count=self.events_count.get(),
+                                                    teams_per_event=self.teams_per_event.get())))
+
+        if not plan:
+            messagebox.showinfo("Nothing to run", "Select at least one generator.")
+            return
+
+        self.run_btn.configure(state="disabled")
+        self._append_log("=== Run started ===")
+
+        def worker():
+            rc_total = 0
+            for name, fn, kwargs in plan:
+                self._enqueue_log(f"[{name}] starting…")
+                def on_line(s): self._enqueue_log(s)
+                try:
+                    rc = fn(on_line=on_line, **kwargs)
+                except TypeError:
+                    rc = fn(**kwargs)  # type: ignore[misc]
+                self._enqueue_log(f"[{name}] exit code {rc}")
+                rc_total |= (rc or 0)
+            self._enqueue_log(f"=== Run finished. overall={'OK' if rc_total == 0 else 'ERRORS'} ===")
+            self.run_btn.configure(state="normal")
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _open_output(self):
+        outdir = Path(self.output_dir.get()).expanduser().resolve()
+        if sys.platform.startswith("darwin"):
+            subprocess.call(["open", str(outdir)])
+        elif os.name == "nt":
+            os.startfile(str(outdir))  # type: ignore[attr-defined]
+        else:
+            subprocess.call(["xdg-open", str(outdir)])
+
+if __name__ == "__main__":
+    App().mainloop()
