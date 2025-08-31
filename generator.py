@@ -221,6 +221,10 @@ class App(tk.Tk):
         self.run_btn.pack(side="left")
         ttk.Button(runbar, text="Open output folder", command=self._open_output).pack(side="left", padx=8)
 
+        # Status
+        self.status_label = ttk.Label(parent, text="", anchor="w", font=("TkDefaultFont", 10, "bold"))
+        self.status_label.pack(fill="x", padx=12, pady=(0, 8))
+        
         self._toggle_states()
 
     # state helpers 
@@ -301,7 +305,10 @@ class App(tk.Tk):
                     rc = fn(**kwargs)  # type: ignore[misc]
                 self._enqueue_log(f"[{name}] exit code {rc}")
                 rc_total |= (rc or 0)
+            result_text = "Generation completed successfully" if rc_total == 0 else "Generation finished with errors"
+            color = "green" if rc_total == 0 else "red"
             self._enqueue_log(f"=== Run finished. overall={'OK' if rc_total == 0 else 'ERRORS'} ===")
+            self.status_label.after(0, lambda: self.status_label.configure(text=result_text, foreground=color))
             self.run_btn.configure(state="normal")
 
         threading.Thread(target=worker, daemon=True).start()
