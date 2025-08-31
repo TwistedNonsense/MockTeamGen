@@ -185,6 +185,13 @@ def generate_unique_mascots(count: int, color_rate: float) -> list[str]:
 
     return out
 
+def clean_school_street(fake):
+    # Compose without secondary unit, then sanitize any leftover tokens
+    s = f"{fake.building_number()} {fake.street_name()}"
+    s = s.replace("\n", " ")
+    s = re.sub(r"\b(?:Apt|Apartment|Suite|Ste|Unit|#)\b.*$", "", s, flags=re.I)
+    return s.strip(" ,")
+
 def generate_teams(num_teams: int, start_id: int, color_rate: float) -> list[dict]:
     # Cities and mascots are unique lists, so pairs are inherently unique
     schools = pick_us_cities(num_teams)
@@ -225,11 +232,11 @@ def generate_venues_for_teams(teams: list[dict], venue_start_id: int) -> list[di
         venues.append({
             "venue_id": vid,
             "venue_name": f"{city} High School",
-            "venue_street": fake.street_address(),
+            "venue_street": clean_school_street(fake),
             "venue_city": city,
             "venue_state": fake.state_abbr(),
             "venue_zip": fake.zipcode(),
-            "venue_phone": fake.phone_number(),
+            "venue_phone": fake.numerify("(###) ###-####"),
             "venue_team_id": team["team_id"],
         })
     return venues
@@ -274,8 +281,8 @@ def main(argv: list[str] | None = None) -> int:
     venues = generate_venues_for_teams(teams, args.venue_start_id)
 
     # Seed-suffixed output paths
-    teams_out = build_seeded_output_path(args.out, seed, enabled=(not args.no_seed_suffix))
-    venue_out = build_seeded_output_path(args.venue_out, seed, enabled=(not args.no_seed_suffix))
+    teams_out = build_seeded_output_path(args.out, seed, enabled=False)
+    venue_out = build_seeded_output_path(args.venue_out, seed, enabled=False)
 
     # Write separate files
     print(f"Generating {num_teams} teams -> {teams_out}")
