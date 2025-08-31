@@ -5,7 +5,6 @@ generate_mock_teams.py
 Generates mock Teams
 - U.S. city names from geonamescache (authentic list).
 - Mascots are unique, color prefixes used probabilistically.
-- Seed randomizes each run and is appended to output filenames by default.
 
 Team CSV columns:
   team_id, team_code, team_school, team_mascot, team_email, team_website
@@ -34,7 +33,7 @@ except ImportError:
 # ---------------------------
 # CONFIG (editable defaults)
 # ---------------------------
-NUM_TEAMS_DEFAULT = 10          # used if Enter is pressed at the prompt without input
+NUM_TEAMS_DEFAULT = 10       
 START_ID_DEFAULT = 1001
 OUTPUT_FILE_DEFAULT = "mock_teams.csv"
 COLOR_RATE_DEFAULT = 0.33      # probability a mascot gets a color prefix
