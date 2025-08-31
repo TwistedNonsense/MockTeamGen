@@ -1,0 +1,80 @@
+# typical temporary files
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+*.old
+*.orig
+temporary/
+TEMP/
+TMP/
+
+# System files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# files related to OS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# virtual environment
+venv/
+.venv/
+
+# files from text editors/IDEs
+*.sublime*
+**/.idea/
+**/.vscode/
+*.history/
+
+# log files and databases
+logs/
+*.log
+*.sql
+*.sqlite
+*.sqlite3
+
+# Build files
+build/
+*.class
+*.o
+*.dll
+
+# Flutter/Dart
+**/build/
+**/.dart_tool/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/.packages
+
+# Node.js modules
+node_modules/
+
+# Python bytecodes
+__pycache__/
+__init__.py
+*.pyc
+*.pyo
+
+# archive files
+*.zip
+*.tar
+*.rar
+*.gz
+*.bz2
+*.7z
+
+# common files and directories
+.vscode/
+.idea/
+
+credentials.json
+.env
+.env.*
+
+# other file types or directories
+.terraform/
+dev-stuff/
