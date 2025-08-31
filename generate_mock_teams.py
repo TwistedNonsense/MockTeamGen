@@ -2,16 +2,13 @@
 """
 generate_mock_teams.py
 
-Generates mock Teams and Venues tied 1:1 to those teams.
+Generates mock Teams
 - U.S. city names from geonamescache (authentic list).
 - Mascots are unique, color prefixes used probabilistically.
 - Seed randomizes each run and is appended to output filenames by default.
 
 Team CSV columns:
   team_id, team_code, team_school, team_mascot, team_email, team_website
-
-Venue CSV columns:
-  venue_id, venue_name, venue_street, venue_city, venue_state, venue_zip, venue_phone, venue_team_id
 
 Install once:
   pip install geonamescache Faker
@@ -39,17 +36,14 @@ except ImportError:
 # ---------------------------
 NUM_TEAMS_DEFAULT = 10          # used if Enter is pressed at the prompt without input
 START_ID_DEFAULT = 1001
-VENUE_START_ID_DEFAULT = 3001
 OUTPUT_FILE_DEFAULT = "mock_teams.csv"
-VENUE_OUTPUT_FILE_DEFAULT = "mock_venues.csv"
 COLOR_RATE_DEFAULT = 0.33      # probability a mascot gets a color prefix
 
 # CLI Explanation Banner
 RUN_MESSAGE = """\
-This script generates mock teams and venues, and writes CSV output.
+This script generates mock teams and writes CSV output
 
 Columns (teams): team_id, team_code, team_school, team_mascot, team_email, team_website
-Columns (venues): venue_id, venue_name, venue_street, venue_city, venue_state, venue_zip, venue_phone, venue_team_id
 
 You can safely generate a list of more than 1,500 unique teams, mascots, & venues.
 """
@@ -186,7 +180,7 @@ def generate_unique_mascots(count: int, color_rate: float) -> list[str]:
     return out
 
 def clean_school_street(fake):
-    # Compose without secondary unit, then sanitize any leftover tokens
+    # Kept for backward-compatibility. used in the standalone venues script
     s = f"{fake.building_number()} {fake.street_name()}"
     s = s.replace("\n", " ")
     s = re.sub(r"\b(?:Apt|Apartment|Suite|Ste|Unit|#)\b.*$", "", s, flags=re.I)
@@ -223,24 +217,6 @@ def generate_teams(num_teams: int, start_id: int, color_rate: float) -> list[dic
         })
     return records
 
-def generate_venues_for_teams(teams: list[dict], venue_start_id: int) -> list[dict]:
-    fake = Faker("en_US")
-    venues: list[dict] = []
-    for i, team in enumerate(teams):
-        vid = venue_start_id + i
-        city = team["team_school"]
-        venues.append({
-            "venue_id": vid,
-            "venue_name": f"{city} High School",
-            "venue_street": clean_school_street(fake),
-            "venue_city": city,
-            "venue_state": fake.state_abbr(),
-            "venue_zip": fake.zipcode(),
-            "venue_phone": fake.numerify("(###) ###-####"),
-            "venue_team_id": team["team_id"],
-        })
-    return venues
-
 def write_csv(records: list[dict], path: str, fieldnames: list[str]) -> None:
     with open(path, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -251,12 +227,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Generate mock teams CSV.")
     p.add_argument("--num-teams", type=int, default=None, help="Number of teams to generate (prompts if omitted)")
     p.add_argument("--start-id", type=int, default=START_ID_DEFAULT, help="Starting team_id (sequential)")
-    p.add_argument("--venue-start-id", type=int, default=VENUE_START_ID_DEFAULT, help="Starting venue_id (sequential)")
     p.add_argument("--out", default=OUTPUT_FILE_DEFAULT, help="Teams output CSV path")
-    p.add_argument("--venue-out", default=VENUE_OUTPUT_FILE_DEFAULT, help="Venues output CSV path")
     p.add_argument("--seed", type=int, default=None, help="Optional fixed random seed for reproducibility")
     p.add_argument("--color-rate", type=float, default=COLOR_RATE_DEFAULT, help="Probability a mascot gets a color prefix (0..1)")
-    p.add_argument("--no-seed-suffix", action="store_true", help="Do not append the seed to the output filename(s)")
     return p.parse_args(argv)
 
 def main(argv: list[str] | None = None) -> int:
@@ -278,24 +251,18 @@ def main(argv: list[str] | None = None) -> int:
     random.seed(seed)
 
     teams = generate_teams(num_teams, args.start_id, args.color_rate)
-    venues = generate_venues_for_teams(teams, args.venue_start_id)
 
     # Seed-suffixed output paths
     teams_out = build_seeded_output_path(args.out, seed, enabled=False)
-    venue_out = build_seeded_output_path(args.venue_out, seed, enabled=False)
 
     # Write separate files
     print(f"Generating {num_teams} teams -> {teams_out}")
-    print(f"Generating {num_teams} venues -> {venue_out}")
 
     team_fields = ["team_id","team_code","team_school","team_mascot","team_email","team_website"]
-    venue_fields = ["venue_id","venue_name","venue_street","venue_city","venue_state","venue_zip","venue_phone","venue_team_id"]
 
     write_csv(teams, teams_out, team_fields)
-    write_csv(venues, venue_out, venue_fields)
 
     print(f"Wrote {len(teams)} teams to {teams_out}")
-    print(f"Wrote {len(venues)} venues to {venue_out}")
     return 0
 
 if __name__ == "__main__":
