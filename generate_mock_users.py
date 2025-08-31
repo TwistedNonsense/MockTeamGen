@@ -45,6 +45,7 @@ class Args:
     start_user_id: int
     seed: int | None
     locale: str
+    roles: List[str]
 
 def parse_args() -> Args:
     p = argparse.ArgumentParser(description="Generate mock users for teams CSV.")
@@ -58,13 +59,19 @@ def parse_args() -> Args:
                    help="Optional RNG seed for reproducibility.")
     p.add_argument("--locale", type=str, default="en_US",
                    help="Faker locale, e.g. en_US. Defaults to en_US.")
+    p.add_argument("--roles", type=str, default=",".join(ROLES),
+                   help="Comma-separated roles to generate. Defaults to all.")
     ns = p.parse_args()
+    roles = [r.strip() for r in ns.roles.split(",") if r.strip()]
+    if not roles:
+        roles = ROLES[:]
     return Args(
         teams_csv=ns.teams_csv,
         out=ns.out,
         start_user_id=ns.start_user_id,
         seed=ns.seed,
         locale=ns.locale,
+        roles=roles,
     )
 
 def read_team_ids(path: Path) -> List[str]:
@@ -140,7 +147,7 @@ def build_unique_phone(fake: Faker, seen_phones: Set[str]) -> str:
         return fake.numerify("(###) ###-####")
     return ensure_unique(gen, seen_phones)
 
-def generate_users(team_ids: Iterable[str], start_user_id: int, fake: Faker) -> List[dict]:
+def generate_users(team_ids: Iterable[str], start_user_id: int, fake: Faker, roles: Iterable[str]) -> List[dict]:
     users: List[dict] = []
     seen_names: Set[str] = set()
     seen_emails: Set[str] = set()
@@ -148,7 +155,7 @@ def generate_users(team_ids: Iterable[str], start_user_id: int, fake: Faker) -> 
     uid = start_user_id
 
     for team_id in team_ids:
-        for role in ROLES:
+        for role in roles:
             full_name = build_unique_name(fake, seen_names)
             email = build_unique_email(fake, full_name, seen_emails)
             phone = build_unique_phone(fake, seen_phones)
@@ -177,7 +184,7 @@ def main() -> int:
     if args.seed is not None:
         fake.seed_instance(args.seed)
     team_ids = read_team_ids(args.teams_csv)
-    users = generate_users(team_ids, args.start_user_id, fake)
+    users = generate_users(team_ids, args.start_user_id, fake, args.roles)
     write_users_csv(args.out, users)
     print(f"Wrote {len(users)} users to {args.out}")
     return 0
