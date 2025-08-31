@@ -1,9 +1,10 @@
-# mock_gen_gui.py
+# generator.py
 
 # Simple GUI to run teams/venues/users/events generators.
 
 import os
 import sys
+import re
 import threading
 import queue
 from pathlib import Path
@@ -13,6 +14,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 
 HERE = Path(__file__).resolve().parent
+ROLES = ["Team Admin", "Coach", "Assistant Coach", "Venue Admin", "Event Admin"]
 
 # import-or-subprocess 
 def _try_import_module(mod_name: str, file_name: str):
@@ -44,6 +46,23 @@ def _run_stream(cmd, on_line):
         on_line(line.rstrip("\n"))
     return proc.wait()
 
+def _humanize_log_line(line: str) -> str:
+    s = line
+    # Step starts
+    s = re.sub(r"^\[teams] starting…$", "▶ Starting mock team generation…", s)
+    s = re.sub(r"^\[venues] starting…$", "▶ Starting mock venue generation…", s)
+    s = re.sub(r"^\[users] starting…$", "▶ Starting mock user generation…", s)
+    s = re.sub(r"^\[events] starting…$", "▶ Starting mock event generation…", s)
+    # Generator summaries
+    s = re.sub(r"^Wrote (\d+) teams to (.+)$", r"✔ Successfully generated \1 mock teams. Saved to \2", s)
+    s = re.sub(r"^Wrote (\d+) venues to (.+)$", r"✔ Successfully generated \1 mock venues. Saved to \2", s)
+    s = re.sub(r"^Wrote (\d+) users to (.+)$", r"✔ Successfully generated \1 mock users. Saved to \2", s)
+    s = re.sub(r"^Wrote (\d+) events to (.+)$", r"✔ Successfully generated \1 mock events. Saved to \2", s)
+    s = re.sub(r"^Wrote (\d+) event-team rows to (.+)$", r"Linked \1 teams to events. Join table saved to \2", s)
+    if re.search(r"\berror\b", s, flags=re.I):
+        s = f"❌ {s}"
+    return s
+
 # runners 
 def run_teams(teams_count: int, output_dir: str, on_line):
     script = HERE / "generate_mock_teams.py"
@@ -59,34 +78,19 @@ def run_teams(teams_count: int, output_dir: str, on_line):
     ]
     return _run_stream(cmd, on_line)
 
-def run_users(output_dir: str, users_count: int | None, on_line=None):
-    # users_count not required by CLI. I'm putting here for future flexibility
-    mod = _try_import_module("generate_mock_users", "generate_mock_users.py")
-    fn = _preferred_callable(mod, ["generate", "main", "run"]) if mod else None
-    if fn:
-        try:
-            fn(users_count=users_count or 0, output_dir=output_dir)  # type: ignore[arg-type]
-            if on_line: on_line("[users] completed via callable")
-            return 0
-        except TypeError:
-            try:
-                fn(users_count or 0, output_dir)  # type: ignore[misc]
-                if on_line: on_line("[users] completed via callable")
-                return 0
-            except Exception as e:
-                if on_line: on_line(f"[users] callable failed: {e!r}; falling back to subprocess")
-
+def run_users(output_dir: str, users_count: int | None, roles: list[str], on_line=None):
     script = HERE / "generate_mock_users.py"
     if not script.exists():
         if on_line: on_line("[users] ERROR: generate_mock_users.py not found")
         return 1
-
     teams_csv = str(Path(output_dir) / "mock_teams.csv")
     out_csv = str(Path(output_dir) / "mock_users.csv")
+    roles_arg = ",".join(roles)
     cmd = [
         sys.executable, str(script),
         "--teams-csv", teams_csv,
         "--out", out_csv,
+        "--roles", roles_arg,
     ]
     return _run_stream(cmd, on_line or (lambda s: None))
 
@@ -133,9 +137,9 @@ def run_events(output_dir: str, events_count: int, teams_per_event: int, on_line
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("Mock Data Studio")
-        self.geometry("760x640")
-        self.minsize(720, 600)
+        self.title("Mock Team Data Generator")
+        self.geometry("600x760")
+        self.minsize(400, 700)
 
         # state
         self.output_dir = tk.StringVar(value=str(HERE))
@@ -143,6 +147,7 @@ class App(tk.Tk):
         self.users_count = tk.IntVar(value=200)  # not used by CLI but kept for parity
         self.events_count = tk.IntVar(value=20)
         self.teams_per_event = tk.IntVar(value=2)
+        self.role_vars = {role: tk.BooleanVar(value=True) for role in ROLES}
 
         self.run_teams_var = tk.BooleanVar(value=True)
         self.run_users_var = tk.BooleanVar(value=True)
@@ -203,7 +208,16 @@ class App(tk.Tk):
         uf.pack(fill="x", padx=12, pady=8)
         ttk.Checkbutton(uf, text="Generate users", variable=self.run_users_var, command=self._toggle_states)\
             .grid(row=0, column=0, sticky="w", padx=12, pady=(10, 6))
-        ttk.Label(uf, text="(Each team will get a Team Admin, Coach, Assistant Coach, Venue Admin, & Event Admin)").grid(row=1, column=0, sticky="w", padx=12, pady=(0, 8))
+        ttk.Label(uf, text="Select roles to generate:").grid(row=1, column=0, sticky="w", padx=12)
+
+        # role checkboxes in two columns
+        r = 2
+        for i, role in enumerate(ROLES):
+            c = i % 2
+            if c == 0 and i > 0:
+                r += 1
+            ttk.Checkbutton(uf, text=role, variable=self.role_vars[role], command=self._toggle_states)\
+                .grid(row=r, column=c, sticky="w", padx=24, pady=2)
 
         # Events
         ef = ttk.LabelFrame(parent, text="Events")
@@ -225,6 +239,10 @@ class App(tk.Tk):
         self.run_btn.pack(side="left")
         ttk.Button(runbar, text="Open output folder", command=self._open_output).pack(side="left", padx=8)
 
+        # Status
+        self.status_label = ttk.Label(parent, text="", anchor="w", font=("TkDefaultFont", 10, "bold"))
+        self.status_label.pack(fill="x", padx=12, pady=(0, 8))
+        
         self._toggle_states()
 
     # state helpers 
@@ -245,13 +263,14 @@ class App(tk.Tk):
 
     # logging 
     def _append_log(self, line: str):
+        """UI-thread writer. Do not call directly; use _enqueue_log."""
         self.log.configure(state="normal")
         self.log.insert("end", line + "\n")
         self.log.see("end")
         self.log.configure(state="disabled")
 
     def _enqueue_log(self, line: str):
-        self.log_queue.put(line)
+        self.log_queue.put(_humanize_log_line(line))
 
     def _drain_log(self):
         try:
@@ -278,8 +297,10 @@ class App(tk.Tk):
             plan.append(("venues", run_venues, dict(output_dir=str(outdir))))
 
         if self.run_users_var.get():
+            selected_roles = [role for role, var in self.role_vars.items() if var.get()]
             plan.append(("users", run_users, dict(output_dir=str(outdir),
-                                                  users_count=self.users_count.get())))
+                                          users_count=self.users_count.get(),
+                                          roles=selected_roles)))
         if self.run_events_var.get():
             plan.append(("events", run_events, dict(output_dir=str(outdir),
                                                     events_count=self.events_count.get(),
@@ -290,20 +311,52 @@ class App(tk.Tk):
             return
 
         self.run_btn.configure(state="disabled")
-        self._append_log("=== Run started ===")
+        self._enqueue_log("╔══════════════════════════════════════╗")
+        self._enqueue_log("║     Mock data generation started     ║")
+        self._enqueue_log("╚══════════════════════════════════════╝")
 
         def worker():
             rc_total = 0
+
+            friendly_name = {
+                "teams": "teams",
+                "venues": "venues",
+                "users": "users",
+                "events": "events",
+            }
+            start_msg = {
+                "teams":  "┣━━━ Starting mock team generation  ━━━┫",
+                "venues": "┣━━━ Starting mock venue generation ━━━┫",
+                "users":  "┣━━━ Starting mock user generation  ━━━┫",
+                "events": "┣━━━ Starting mock event generation ━━━┫",
+            }
+
             for name, fn, kwargs in plan:
-                self._enqueue_log(f"[{name}] starting…")
+                self._enqueue_log(start_msg.get(name, f"▶ Starting {friendly_name.get(name, name)}…"))
+
                 def on_line(s): self._enqueue_log(s)
+
                 try:
                     rc = fn(on_line=on_line, **kwargs)
                 except TypeError:
-                    rc = fn(**kwargs)  # type: ignore[misc]
-                self._enqueue_log(f"[{name}] exit code {rc}")
+                    rc = fn(**kwargs)  # fallback if runner lacks on_line
+
+                if (rc or 0) == 0:
+                    self._enqueue_log(f"✔ Finished {friendly_name.get(name, name)}.")
+                else:
+                    self._enqueue_log(f"❌ {friendly_name.get(name, name).capitalize()} failed. Exit code {rc}")
                 rc_total |= (rc or 0)
-            self._enqueue_log(f"=== Run finished. overall={'OK' if rc_total == 0 else 'ERRORS'} ===")
+
+            # Summary block
+            ok = (rc_total == 0)
+            self._enqueue_log("╔══════════════════════════════════════╗")
+            self._enqueue_log(("║   All tasks completed successfully   ║" if ok
+                        else   "║         Finished with errors         ║"))
+            self._enqueue_log("╚══════════════════════════════════════╝")
+            
+            result_text = "Generation completed successfully" if rc_total == 0 else "Generation finished with errors"
+            color = "green" if rc_total == 0 else "red"
+            self.status_label.after(0, lambda: self.status_label.configure(text=result_text, foreground=color))
             self.run_btn.configure(state="normal")
 
         threading.Thread(target=worker, daemon=True).start()
