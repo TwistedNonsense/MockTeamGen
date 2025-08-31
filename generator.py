@@ -1,4 +1,4 @@
-# mock_gen_gui.py
+# generator.py
 
 # Simple GUI to run teams/venues/users/events generators.
 
@@ -13,6 +13,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 
 HERE = Path(__file__).resolve().parent
+ROLES = ["Team Admin", "Coach", "Assistant Coach", "Venue Admin", "Event Admin"]
 
 # import-or-subprocess 
 def _try_import_module(mod_name: str, file_name: str):
@@ -59,34 +60,19 @@ def run_teams(teams_count: int, output_dir: str, on_line):
     ]
     return _run_stream(cmd, on_line)
 
-def run_users(output_dir: str, users_count: int | None, on_line=None):
-    # users_count not required by CLI. I'm putting here for future flexibility
-    mod = _try_import_module("generate_mock_users", "generate_mock_users.py")
-    fn = _preferred_callable(mod, ["generate", "main", "run"]) if mod else None
-    if fn:
-        try:
-            fn(users_count=users_count or 0, output_dir=output_dir)  # type: ignore[arg-type]
-            if on_line: on_line("[users] completed via callable")
-            return 0
-        except TypeError:
-            try:
-                fn(users_count or 0, output_dir)  # type: ignore[misc]
-                if on_line: on_line("[users] completed via callable")
-                return 0
-            except Exception as e:
-                if on_line: on_line(f"[users] callable failed: {e!r}; falling back to subprocess")
-
+def run_users(output_dir: str, users_count: int | None, roles: list[str], on_line=None):
     script = HERE / "generate_mock_users.py"
     if not script.exists():
         if on_line: on_line("[users] ERROR: generate_mock_users.py not found")
         return 1
-
     teams_csv = str(Path(output_dir) / "mock_teams.csv")
     out_csv = str(Path(output_dir) / "mock_users.csv")
+    roles_arg = ",".join(roles)
     cmd = [
         sys.executable, str(script),
         "--teams-csv", teams_csv,
         "--out", out_csv,
+        "--roles", roles_arg,
     ]
     return _run_stream(cmd, on_line or (lambda s: None))
 
@@ -133,9 +119,9 @@ def run_events(output_dir: str, events_count: int, teams_per_event: int, on_line
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("Mock Data Studio")
-        self.geometry("760x640")
-        self.minsize(720, 600)
+        self.title("Mock Team Data Generator")
+        self.geometry("600x760")
+        self.minsize(400, 700)
 
         # state
         self.output_dir = tk.StringVar(value=str(HERE))
@@ -143,6 +129,7 @@ class App(tk.Tk):
         self.users_count = tk.IntVar(value=200)  # not used by CLI but kept for parity
         self.events_count = tk.IntVar(value=20)
         self.teams_per_event = tk.IntVar(value=2)
+        self.role_vars = {role: tk.BooleanVar(value=True) for role in ROLES}
 
         self.run_teams_var = tk.BooleanVar(value=True)
         self.run_users_var = tk.BooleanVar(value=True)
@@ -203,7 +190,16 @@ class App(tk.Tk):
         uf.pack(fill="x", padx=12, pady=8)
         ttk.Checkbutton(uf, text="Generate users", variable=self.run_users_var, command=self._toggle_states)\
             .grid(row=0, column=0, sticky="w", padx=12, pady=(10, 6))
-        ttk.Label(uf, text="(Each team will get a Team Admin, Coach, Assistant Coach, Venue Admin, & Event Admin)").grid(row=1, column=0, sticky="w", padx=12, pady=(0, 8))
+        ttk.Label(uf, text="Select roles to generate:").grid(row=1, column=0, sticky="w", padx=12)
+
+        # role checkboxes in two columns
+        r = 2
+        for i, role in enumerate(ROLES):
+            c = i % 2
+            if c == 0 and i > 0:
+                r += 1
+            ttk.Checkbutton(uf, text=role, variable=self.role_vars[role], command=self._toggle_states)\
+                .grid(row=r, column=c, sticky="w", padx=24, pady=2)
 
         # Events
         ef = ttk.LabelFrame(parent, text="Events")
@@ -278,8 +274,10 @@ class App(tk.Tk):
             plan.append(("venues", run_venues, dict(output_dir=str(outdir))))
 
         if self.run_users_var.get():
+            selected_roles = [role for role, var in self.role_vars.items() if var.get()]
             plan.append(("users", run_users, dict(output_dir=str(outdir),
-                                                  users_count=self.users_count.get())))
+                                          users_count=self.users_count.get(),
+                                          roles=selected_roles)))
         if self.run_events_var.get():
             plan.append(("events", run_events, dict(output_dir=str(outdir),
                                                     events_count=self.events_count.get(),
