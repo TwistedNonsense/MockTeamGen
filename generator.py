@@ -14,7 +14,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 
 HERE = Path(__file__).resolve().parent
-ROLES = ["Team Admin", "Coach", "Assistant Coach", "Venue Admin", "Event Admin"]
+ROLES = ["Team Admin", "Coach", "Assistant Coach", "Venue Admin", "Event Admin","Other"]
 
 # import-or-subprocess 
 def _try_import_module(mod_name: str, file_name: str):
@@ -53,12 +53,14 @@ def _humanize_log_line(line: str) -> str:
     s = re.sub(r"^\[venues] starting…$", "▶ Starting mock venue generation…", s)
     s = re.sub(r"^\[users] starting…$", "▶ Starting mock user generation…", s)
     s = re.sub(r"^\[events] starting…$", "▶ Starting mock event generation…", s)
+    s = re.sub(r"^\[players] starting…$", "▶ Starting mock player generation…", s)
     # Generator summaries
     s = re.sub(r"^Wrote (\d+) teams to (.+)$", r"✔ Successfully generated \1 mock teams. Saved to \2", s)
     s = re.sub(r"^Wrote (\d+) venues to (.+)$", r"✔ Successfully generated \1 mock venues. Saved to \2", s)
     s = re.sub(r"^Wrote (\d+) users to (.+)$", r"✔ Successfully generated \1 mock users. Saved to \2", s)
     s = re.sub(r"^Wrote (\d+) events to (.+)$", r"✔ Successfully generated \1 mock events. Saved to \2", s)
     s = re.sub(r"^Wrote (\d+) event-team rows to (.+)$", r"Linked \1 teams to events. Join table saved to \2", s)
+    s = re.sub(r"^Wrote (\d+) players to (.+)$", r"✔ Successfully generated \1 mock players. Saved to \2", s)
     if re.search(r"\berror\b", s, flags=re.I):
         s = f"❌ {s}"
     return s
@@ -133,13 +135,31 @@ def run_events(output_dir: str, events_count: int, teams_per_event: int, on_line
     ]
     return _run_stream(cmd, on_line or (lambda s: None))
 
+def run_players(output_dir: str, players_per_team: int, age_min: int, age_max: int, on_line=None):
+    script = HERE / "generate_mock_players.py"
+    if not script.exists():
+        if on_line: on_line("[players] ERROR: generate_mock_players.py not found")
+        return 1
+    teams_csv = str(Path(output_dir) / "mock_teams.csv")
+    out_csv = str(Path(output_dir) / "mock_players.csv")
+    cmd = [
+        sys.executable, str(script),
+        "--teams-csv", teams_csv,
+        "--out", out_csv,
+        "--players-per-team", str(players_per_team),
+        "--age-min", str(age_min),
+        "--age-max", str(age_max),
+        "--start-id", "7001",
+    ]
+    return _run_stream(cmd, on_line or (lambda s: None))
+
 # GUI 
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Mock Team Data Generator")
-        self.geometry("600x760")
-        self.minsize(400, 700)
+        self.geometry("600x875")
+        self.minsize(400, 850)
 
         # state
         self.output_dir = tk.StringVar(value=str(HERE))
@@ -147,12 +167,17 @@ class App(tk.Tk):
         self.users_count = tk.IntVar(value=200)  # not used by CLI but kept for parity
         self.events_count = tk.IntVar(value=20)
         self.teams_per_event = tk.IntVar(value=2)
+        self.players_per_team = tk.IntVar(value=20)
         self.role_vars = {role: tk.BooleanVar(value=True) for role in ROLES}
 
         self.run_teams_var = tk.BooleanVar(value=True)
         self.run_users_var = tk.BooleanVar(value=True)
         self.run_events_var = tk.BooleanVar(value=True)
         self.run_venues_var = tk.BooleanVar(value=True)
+        self.run_players_var = tk.BooleanVar(value=True)
+
+        self.age_min = tk.IntVar(value=18)
+        self.age_max = tk.IntVar(value=22)
 
         self._build_ui()
 
@@ -191,17 +216,18 @@ class App(tk.Tk):
         tf.pack(fill="x", padx=12, pady=8)
         ttk.Checkbutton(tf, text="Generate teams", variable=self.run_teams_var, command=self._toggle_states)\
             .grid(row=0, column=0, sticky="w", padx=12, pady=(10, 6))
-        ttk.Label(tf, text="Number of teams:").grid(row=1, column=0, sticky="w", padx=12)
-        self.sb_teams = ttk.Spinbox(tf, from_=1, to=100000, textvariable=self.teams_count, width=12)
-        self.sb_teams.grid(row=1, column=1, sticky="w", padx=12)
-        tf.grid_columnconfigure(2, weight=1)
+        ttk.Label(tf, text="Number of teams:").grid(row=0, column=1, sticky="w", padx=(12, 4), pady=(10, 6))
+        self.sb_teams = ttk.Spinbox(tf, from_=1, to=9999, textvariable=self.teams_count, width=6)
+        self.sb_teams.grid(row=0, column=2, sticky="w", padx=(0, 12), pady=(10, 6))
+
+        tf.grid_columnconfigure(3, weight=1)
 
         # Venues
         vf = ttk.LabelFrame(parent, text="Venues")
         vf.pack(fill="x", padx=12, pady=8)
         ttk.Checkbutton(vf,text="Generate venues",variable=self.run_venues_var,command=self._toggle_states)\
             .grid(row=0,column=0,sticky="w",padx=12,pady=(10,6))
-        ttk.Label(vf,text="(Each team will get a venue)").grid(row=1,column=0,sticky="w",padx=12,pady=(0,8))
+#        ttk.Label(vf,text="(Each team will get a venue)").grid(row=1,column=0,sticky="w",padx=12,pady=(0,8))
         
         # Users
         uf = ttk.LabelFrame(parent, text="Users")
@@ -210,10 +236,10 @@ class App(tk.Tk):
             .grid(row=0, column=0, sticky="w", padx=12, pady=(10, 6))
         ttk.Label(uf, text="Select roles to generate:").grid(row=1, column=0, sticky="w", padx=12)
 
-        # role checkboxes in two columns
-        r = 2
+        # role checkboxes in 3 columns
+        r = 3
         for i, role in enumerate(ROLES):
-            c = i % 2
+            c = i % 3
             if c == 0 and i > 0:
                 r += 1
             ttk.Checkbutton(uf, text=role, variable=self.role_vars[role], command=self._toggle_states)\
@@ -224,13 +250,29 @@ class App(tk.Tk):
         ef.pack(fill="x", padx=12, pady=8)
         ttk.Checkbutton(ef, text="Generate events", variable=self.run_events_var, command=self._toggle_states)\
             .grid(row=0, column=0, sticky="w", padx=12, pady=(10, 6))
-        ttk.Label(ef, text="Number of events:").grid(row=1, column=0, sticky="w", padx=12)
-        self.sb_events = ttk.Spinbox(ef, from_=1, to=100000, textvariable=self.events_count, width=12)
-        self.sb_events.grid(row=1, column=1, sticky="w", padx=12)
+        ttk.Label(ef, text="Number of events:").grid(row=1, column=0, sticky="w", padx=(12, 4))
+        self.sb_events = ttk.Spinbox(ef, from_=1, to=9999, textvariable=self.events_count, width=6)
+        self.sb_events.grid(row=1, column=1, sticky="w", padx=(0, 12))
+        ttk.Label(ef, text="Teams per event:").grid(row=1, column=2, sticky="w", padx=(12, 4))
+        self.sb_tpe = ttk.Spinbox(ef, from_=1, to=64, textvariable=self.teams_per_event, width=6)
+        self.sb_tpe.grid(row=1, column=3, sticky="w", padx=(0, 12), pady=(0, 10))
+        ef.grid_columnconfigure(4, weight=1)
 
-        ttk.Label(ef, text="Teams per event:").grid(row=2, column=0, sticky="w", padx=12, pady=(4, 10))
-        self.sb_tpe = ttk.Spinbox(ef, from_=1, to=64, textvariable=self.teams_per_event, width=12)
-        self.sb_tpe.grid(row=2, column=1, sticky="w", padx=12, pady=(4, 10))
+        # Players
+        pf = ttk.LabelFrame(parent, text="Players")
+        pf.pack(fill="x", padx=12, pady=8)
+        ttk.Checkbutton(pf, text="Generate players", variable=self.run_players_var, command=self._toggle_states)\
+            .grid(row=0, column=0, sticky="w", padx=12, pady=(10, 6))
+        ttk.Label(pf, text="Players per team:").grid(row=1, column=0, sticky="w", padx=(12, 4))
+        self.sb_ppt = ttk.Spinbox(pf, from_=0, to=200, textvariable=self.players_per_team, width=6)
+        self.sb_ppt.grid(row=1, column=1, sticky="w", padx=(0, 12))
+        ttk.Label(pf, text="Age min:").grid(row=2, column=0, sticky="w", padx=(12, 4))
+        self.sb_age_min = ttk.Spinbox(pf, from_=10, to=60, textvariable=self.age_min, width=6)
+        self.sb_age_min.grid(row=2, column=1, sticky="w", padx=(0, 12))
+        ttk.Label(pf, text="Age max:").grid(row=2, column=2, sticky="w", padx=(12, 4))
+        self.sb_age_max = ttk.Spinbox(pf, from_=10, to=60, textvariable=self.age_max, width=6)
+        self.sb_age_max.grid(row=2, column=3, sticky="w", padx=(0, 12), pady=(0, 10))
+        pf.grid_columnconfigure(4, weight=1)
 
         # Run button at bottom
         runbar = ttk.Frame(parent)
@@ -248,13 +290,17 @@ class App(tk.Tk):
     # state helpers 
     def _toggle_states(self):
         # Enable/disable inputs based on checkboxes
-        for w, flag in [(self.sb_teams, self.run_teams_var.get()),
-                        (self.sb_events, self.run_events_var.get()),
-                        (self.sb_tpe, self.run_events_var.get())]:
-            try:
-                w.configure(state=("normal" if flag else "disabled"))
-            except tk.TclError:
-                pass
+        for w, flag in [
+            (self.sb_teams, self.run_teams_var.get()),
+            (self.sb_events, self.run_events_var.get()),
+            (self.sb_tpe, self.run_events_var.get()),
+            (getattr(self, "sb_ppt", None), getattr(self, "run_players_var", tk.BooleanVar(value=True)).get()),
+            (getattr(self, "sb_age_min", None), getattr(self, "run_players_var", tk.BooleanVar(value=True)).get()),
+            (getattr(self, "sb_age_max", None), getattr(self, "run_players_var", tk.BooleanVar(value=True)).get()),
+        ]:
+            if w:
+                try: w.configure(state=("normal" if flag else "disabled"))
+                except tk.TclError: pass
 
     def _pick_folder(self):
         path = filedialog.askdirectory(initialdir=self.output_dir.get() or str(HERE))
@@ -306,6 +352,14 @@ class App(tk.Tk):
                                                     events_count=self.events_count.get(),
                                                     teams_per_event=self.teams_per_event.get())))
 
+        if self.run_players_var.get():
+            plan.append(("players", run_players, dict(
+                output_dir=str(outdir),
+                players_per_team=self.players_per_team.get(),
+                age_min=self.age_min.get(),
+                age_max=self.age_max.get(),
+            )))
+
         if not plan:
             messagebox.showinfo("Nothing to run", "Select at least one generator.")
             return
@@ -323,12 +377,14 @@ class App(tk.Tk):
                 "venues": "venues",
                 "users": "users",
                 "events": "events",
+                "players": "players",
             }
             start_msg = {
                 "teams":  "┣━━━ Starting mock team generation  ━━━┫",
                 "venues": "┣━━━ Starting mock venue generation ━━━┫",
                 "users":  "┣━━━ Starting mock user generation  ━━━┫",
                 "events": "┣━━━ Starting mock event generation ━━━┫",
+                "players": "┣━━━ Starting mock player generation ━━━┫",
             }
 
             for name, fn, kwargs in plan:
