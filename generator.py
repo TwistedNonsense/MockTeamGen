@@ -158,7 +158,7 @@ class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Mock Team Data Generator")
-        self.geometry("600x875")
+        self.geometry("550x750")
         self.minsize(550, 750)
 
         # state
@@ -252,14 +252,14 @@ class App(tk.Tk):
         ef.pack(fill="x", padx=12, pady=8)
         ttk.Checkbutton(ef, text="Generate events", variable=self.run_events_var, command=self._toggle_states)\
             .grid(row=0, column=0, sticky="w", padx=12, pady=(10, 6))
-        ttk.Label(ef, text="Number of events:").grid(row=1, column=0, sticky="w", padx=(12, 6))
+        ttk.Label(ef, text="Number of events:").grid(row=1, column=0, sticky="w", padx=(12, 6), pady=(0,8))
         self.sb_events = ttk.Spinbox(ef, from_=1, to=9999, textvariable=self.events_count,
                                     width=6, style="Compact.TSpinbox")
-        self.sb_events.grid(row=1, column=1, sticky="w", padx=(0, 20))
-        ttk.Label(ef, text="Teams per event:").grid(row=1, column=2, sticky="w", padx=(12, 6))
+        self.sb_events.grid(row=1, column=1, sticky="w", padx=(0, 20), pady=(0,8))
+        ttk.Label(ef, text="Teams per event:").grid(row=1, column=2, sticky="w", padx=(12, 6), pady=(0,8))
         self.sb_tpe = ttk.Spinbox(ef, from_=1, to=64, textvariable=self.teams_per_event,
                                 width=6, style="Compact.TSpinbox")
-        self.sb_tpe.grid(row=1, column=3, sticky="w", padx=(0, 12), pady=(0, 8))
+        self.sb_tpe.grid(row=1, column=3, sticky="w", padx=(0, 12), pady=(0,8))
         ef.grid_columnconfigure(4, weight=1)
 
         # Players
@@ -271,18 +271,21 @@ class App(tk.Tk):
         self.age_max = tk.IntVar(value=22)
         ttk.Checkbutton(pf, text="Generate players", variable=self.run_players_var,
                         command=self._toggle_states).grid(row=0, column=0, sticky="w", padx=12, pady=(10, 6))
-        ttk.Label(pf, text="Players per team:").grid(row=1, column=0, sticky="w", padx=(12, 6))
+        
+        ttk.Label(pf, text="Players per team:").grid(row=1, column=0, sticky="w", padx=(12, 6), pady=2)
         self.sb_ppt = ttk.Spinbox(pf, from_=0, to=200, textvariable=self.players_per_team,
                                 width=6, style="Compact.TSpinbox")
-        self.sb_ppt.grid(row=1, column=1, sticky="w", padx=(0, 20))
-        ttk.Label(pf, text="Age min:").grid(row=2, column=0, sticky="w", padx=(12, 6))
+        self.sb_ppt.grid(row=1, column=1, sticky="w", padx=(0, 20), pady=2)
+        
+        ttk.Label(pf, text="Age min:").grid(row=2, column=0, sticky="w", padx=(12, 6), pady=2)
         self.sb_age_min = ttk.Spinbox(pf, from_=10, to=60, textvariable=self.age_min,
                                     width=6, style="Compact.TSpinbox")
-        self.sb_age_min.grid(row=2, column=1, sticky="w", padx=(0, 20))
-        ttk.Label(pf, text="Age max:").grid(row=2, column=2, sticky="w", padx=(12, 6))
+        self.sb_age_min.grid(row=2, column=1, sticky="w", padx=(0, 20), pady=2)
+        
+        ttk.Label(pf, text="Age max:").grid(row=2, column=2, sticky="w", padx=(12, 6), pady=2)
         self.sb_age_max = ttk.Spinbox(pf, from_=10, to=60, textvariable=self.age_max,
                                     width=6, style="Compact.TSpinbox")
-        self.sb_age_max.grid(row=2, column=3, sticky="w", padx=(0, 12), pady=(0, 8))
+        self.sb_age_max.grid(row=2, column=3, sticky="w", padx=(0, 12), pady=2)
         pf.grid_columnconfigure(4, weight=1)
 
         # Run button at bottom
