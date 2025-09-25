@@ -53,7 +53,7 @@ From the GUI you can:
 
 The generated CSV files will appear in the chosen folder.
 
-![](https://github.com/TwistedNonsense/MockTeamGen/blob/main/GUI_MockTeamDataGen.png)
+![](https://github.com/TwistedNonsense/MockTeamGen/blob/main/GUI_MockDataGen.png)
 
 ### Command Line
 Each generator can also be run directly. For ex:
