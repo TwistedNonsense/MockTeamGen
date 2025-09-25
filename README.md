@@ -49,6 +49,7 @@ From the GUI you can:
 - Select which data sets to generate
 - Configure counts (e.g. number of teams, events, teams per event, players)
 - Pick which user roles to include
+- Select the option to generate passwords and hash values for those users
 
 The generated CSV files will appear in the chosen folder.
 
