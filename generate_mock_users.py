@@ -46,6 +46,7 @@ class Args:
     seed: int | None
     locale: str
     roles: List[str]
+    include_passwords: bool = False
 
 def parse_args() -> Args:
     p = argparse.ArgumentParser(description="Generate mock users for teams CSV.")
@@ -61,6 +62,8 @@ def parse_args() -> Args:
                    help="Faker locale, e.g. en_US. Defaults to en_US.")
     p.add_argument("--roles", type=str, default=",".join(ROLES),
                    help="Comma-separated roles to generate. Defaults to all.")
+    p.add_argument("--include-passwords", action="store_true",
+                   help="Include password hashes in the output")
     ns = p.parse_args()
     roles = [r.strip() for r in ns.roles.split(",") if r.strip()]
     if not roles:
@@ -72,6 +75,7 @@ def parse_args() -> Args:
         seed=ns.seed,
         locale=ns.locale,
         roles=roles,
+        include_passwords=ns.include_passwords
     )
 
 def read_team_ids(path: Path) -> List[str]:
@@ -147,7 +151,8 @@ def build_unique_phone(fake: Faker, seen_phones: Set[str]) -> str:
         return fake.numerify("(###) ###-####")
     return ensure_unique(gen, seen_phones)
 
-def generate_users(team_ids: Iterable[str], start_user_id: int, fake: Faker, roles: Iterable[str]) -> List[dict]:
+def generate_users(team_ids: Iterable[str], start_user_id: int, fake: Faker, 
+                   roles: Iterable[str], include_passwords: bool = False) -> List[dict]:
     users: List[dict] = []
     seen_names: Set[str] = set()
     seen_emails: Set[str] = set()
@@ -159,24 +164,50 @@ def generate_users(team_ids: Iterable[str], start_user_id: int, fake: Faker, rol
             full_name = build_unique_name(fake, seen_names)
             email = build_unique_email(fake, full_name, seen_emails)
             phone = build_unique_phone(fake, seen_phones)
-            users.append({
+            
+            # Generate a simple password based on the username and role
+            username = email.split('@')[0].lower()
+            password = f"{username}123!"  # Simple password for testing
+            
+            user_data = {
                 "user_id": uid,
                 "user_full_name": full_name,
                 "user_email": email,
                 "user_phone": phone,
                 "user_team_id": team_id,
                 "user_role": role,
-            })
+            }
+            
+            if include_passwords:
+                user_data["password"] = password
+                user_data["password_hash"] = generate_password_hash(password)
+            
+            users.append(user_data)
             uid += 1
     return users
 
-def write_users_csv(path: Path, rows: List[dict]) -> None:
+def write_users_csv(path: Path, rows: List[dict], include_passwords: bool = False) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    fields = ["user_id","user_full_name","user_email","user_phone","user_team_id","user_role"]
+    fields = ["user_id", "user_full_name", "user_email", "user_phone", "user_team_id", "user_role"]
+    
+    if include_passwords and rows and any("password" in row for row in rows):
+        fields.extend(["password", "password_hash"])
+    
     with path.open("w", encoding="utf-8", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=fields)
+        w = csv.DictWriter(f, fieldnames=fields, extrasaction='ignore')
         w.writeheader()
         w.writerows(rows)
+
+def generate_password_hash(password: str) -> str:
+    """Generate a bcrypt hash for the given password."""
+    try:
+        from flask_bcrypt import Bcrypt
+        bcrypt = Bcrypt()
+        return bcrypt.generate_password_hash(password).decode('utf-8')
+    except ImportError:
+        print("Warning: flask-bcrypt not found. Using a dummy hash.\n"
+              "Install it with: pip install flask-bcrypt bcrypt")
+        return f"$bcrypt-sha256$v=2,t=2b,r=12${'A'*22}${'B'*31}"  # Dummy hash format
 
 def main() -> int:
     args = parse_args()
@@ -184,8 +215,8 @@ def main() -> int:
     if args.seed is not None:
         fake.seed_instance(args.seed)
     team_ids = read_team_ids(args.teams_csv)
-    users = generate_users(team_ids, args.start_user_id, fake, args.roles)
-    write_users_csv(args.out, users)
+    users = generate_users(team_ids, args.start_user_id, fake, args.roles, args.include_passwords)
+    write_users_csv(args.out, users, args.include_passwords)
     print(f"Wrote {len(users)} users to {args.out}")
     return 0
 

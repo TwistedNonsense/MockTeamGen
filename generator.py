@@ -16,7 +16,6 @@ from tkinter import ttk, filedialog, messagebox
 HERE = Path(__file__).resolve().parent
 ROLES = ["Team Admin", "Coach", "Assistant Coach", "Venue Admin", "Event Admin","Other"]
 
-# import-or-subprocess 
 def _try_import_module(mod_name: str, file_name: str):
     p = HERE / file_name
     if not p.exists():
@@ -80,7 +79,7 @@ def run_teams(teams_count: int, output_dir: str, on_line):
     ]
     return _run_stream(cmd, on_line)
 
-def run_users(output_dir: str, users_count: int | None, roles: list[str], on_line=None):
+def run_users(output_dir: str, users_count: int | None, roles: list[str], include_passwords: bool = False, on_line=None):
     script = HERE / "generate_mock_users.py"
     if not script.exists():
         if on_line: on_line("[users] ERROR: generate_mock_users.py not found")
@@ -94,6 +93,8 @@ def run_users(output_dir: str, users_count: int | None, roles: list[str], on_lin
         "--out", out_csv,
         "--roles", roles_arg,
     ]
+    if include_passwords:
+        cmd.append("--include-passwords")
     return _run_stream(cmd, on_line or (lambda s: None))
 
 def run_venues(output_dir: str, on_line):
@@ -158,8 +159,8 @@ class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Mock Team Data Generator")
-        self.geometry("550x750")
-        self.minsize(550, 750)
+        self.geometry("600x850")
+        self.minsize(600, 800)  # Minimum size to ensure all elements are visible
 
         # state
         self.output_dir = tk.StringVar(value=str(HERE))
@@ -169,6 +170,7 @@ class App(tk.Tk):
         self.teams_per_event = tk.IntVar(value=2)
         self.players_per_team = tk.IntVar(value=20)
         self.role_vars = {role: tk.BooleanVar(value=True) for role in ROLES}
+        self.include_passwords = tk.BooleanVar(value=False)  
 
         self.run_teams_var = tk.BooleanVar(value=True)
         self.run_users_var = tk.BooleanVar(value=True)
@@ -213,14 +215,12 @@ class App(tk.Tk):
         e.pack(side="left", fill="x", expand=True, padx=(12, 6), pady=12)
         ttk.Button(outf, text="Browse…", command=self._pick_folder).pack(side="left", padx=(6, 12), pady=12)
 
-        # Teams
+        # Teams (always generated, no checkbox)
         tf = ttk.LabelFrame(parent, text="Teams")
         tf.pack(fill="x", padx=12, pady=8)
-        ttk.Checkbutton(tf, text="Generate teams", variable=self.run_teams_var, command=self._toggle_states)\
-            .grid(row=0, column=0, sticky="w", padx=12, pady=(10, 6))
-        ttk.Label(tf, text="Number of teams:").grid(row=0, column=1, sticky="w", padx=(12, 4), pady=(10, 6))
+        ttk.Label(tf, text="Number of teams to generate:").grid(row=0, column=0, sticky="w", padx=12, pady=(10, 6))
         self.sb_teams = ttk.Spinbox(tf, from_=1, to=9999, textvariable=self.teams_count, width=6)
-        self.sb_teams.grid(row=0, column=2, sticky="w", padx=(0, 12), pady=(10, 6))
+        self.sb_teams.grid(row=0, column=1, sticky="w", padx=(0, 12), pady=(10, 6))
 
         tf.grid_columnconfigure(3, weight=1)
 
@@ -233,19 +233,34 @@ class App(tk.Tk):
         
         # Users
         uf = ttk.LabelFrame(parent, text="Users")
-        uf.pack(fill="x", padx=12, pady=8)
-        ttk.Checkbutton(uf, text="Generate users", variable=self.run_users_var, command=self._toggle_states)\
-            .grid(row=0, column=0, sticky="w", padx=12, pady=(10, 6))
-        ttk.Label(uf, text="Select roles to generate:").grid(row=1, column=0, sticky="w", padx=12)
-
-        # role checkboxes in 3 columns
-        r = 3
+        uf.pack(fill="x", padx=12, pady=8, ipady=5)
+        
+        # Configure grid weights for even column distribution
+        for i in range(3):
+            uf.columnconfigure(i, weight=1, uniform='role_cols')
+        
+        # First row - Generate users checkbox
+        ttk.Checkbutton(uf, text="Generate users", variable=self.run_users_var, 
+                       command=self._toggle_states).grid(row=0, column=0, columnspan=3, 
+                                                      sticky="w", padx=12, pady=(5, 2))
+        
+        # Second row - Password checkbox
+        ttk.Checkbutton(uf, text="Include passwords (with bcrypt hashes)",
+                       variable=self.include_passwords).grid(row=1, column=0, columnspan=3, 
+                                                          sticky="w", padx=24, pady=2)
+        
+        # Third row - Roles label
+        ttk.Label(uf, text="Select roles to generate:").grid(row=2, column=0, columnspan=3, 
+                                                           sticky="w", padx=12, pady=(5, 5))
+        
+        # Role checkboxes in 3 columns with even spacing
         for i, role in enumerate(ROLES):
-            c = i % 3
-            if c == 0 and i > 0:
-                r += 1
-            ttk.Checkbutton(uf, text=role, variable=self.role_vars[role], command=self._toggle_states)\
-                .grid(row=r, column=c, sticky="w", padx=24, pady=2)
+            row = 3 + (i // 3)
+            col = i % 3
+            ttk.Checkbutton(uf, text=role, variable=self.role_vars[role], 
+                           command=self._toggle_states).grid(
+                               row=row, column=col, 
+                               sticky="w", padx=12, pady=2)
 
         # Events
         ef = ttk.LabelFrame(parent, text="Events")
@@ -349,10 +364,10 @@ class App(tk.Tk):
             messagebox.showerror("Error", f"Cannot create output directory:\n{e}")
             return
 
-        plan = []
-        if self.run_teams_var.get():
-            plan.append(("teams", run_teams, dict(teams_count=self.teams_count.get(),
-                                                  output_dir=str(outdir))))
+        plan = [
+            ("teams", run_teams, dict(teams_count=self.teams_count.get(),
+                                     output_dir=str(outdir)))
+        ]
         if getattr(self, "run_venues_var", tk.BooleanVar(value=True)).get():
             plan.append(("venues", run_venues, dict(output_dir=str(outdir))))
 
@@ -360,7 +375,8 @@ class App(tk.Tk):
             selected_roles = [role for role, var in self.role_vars.items() if var.get()]
             plan.append(("users", run_users, dict(output_dir=str(outdir),
                                           users_count=self.users_count.get(),
-                                          roles=selected_roles)))
+                                          roles=selected_roles,
+                                          include_passwords=self.include_passwords.get())))
         if self.run_events_var.get():
             plan.append(("events", run_events, dict(output_dir=str(outdir),
                                                     events_count=self.events_count.get(),
