@@ -13,6 +13,12 @@ import subprocess
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 
+try:
+    from hash_password import HashPanel, HASHING_AVAILABLE
+except Exception:
+    HashPanel = None  # type: ignore[assignment]
+    HASHING_AVAILABLE = False  # type: ignore[assignment]
+
 HERE = Path(__file__).resolve().parent
 ROLES = ["Team Admin", "Coach", "Assistant Coach", "Venue Admin", "Event Admin","Other"]
 
@@ -159,8 +165,18 @@ class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Mock Team Data Generator")
-        self.geometry("600x850")
-        self.minsize(600, 800)  # Minimum size to ensure all elements are visible
+        self.geometry("720x900")
+        self.minsize(680, 820)  # Minimum size to ensure all elements are visible
+
+        if not HASHING_AVAILABLE:
+            self.after(
+                0,
+                lambda: messagebox.showwarning(
+                    "Password Hashing Unavailable",
+                    "Password hashing is unavailable because 'flask-bcrypt' (and 'bcrypt') is not installed or could not be initialized.\n\n"
+                    "Install: pip install flask-bcrypt bcrypt",
+                ),
+            )
 
         # state
         self.output_dir = tk.StringVar(value=str(HERE))
@@ -195,8 +211,10 @@ class App(tk.Tk):
 
         options = ttk.Frame(nb)
         logtab = ttk.Frame(nb)
+        hashtab = ttk.Frame(nb)
         nb.add(options, text="Options")
         nb.add(logtab, text="Log")
+        nb.add(hashtab, text="Password Hash")
 
         # Options tab
         self._build_options(options)
@@ -206,6 +224,22 @@ class App(tk.Tk):
         lf.pack(fill="both", expand=True, padx=12, pady=12)
         self.log = tk.Text(lf, height=20, wrap="word", state="disabled")
         self.log.pack(fill="both", expand=True, padx=8, pady=8)
+
+        # Password hash tab
+        if HashPanel is not None:
+            p = HashPanel(hashtab)
+            p.pack(fill="both", expand=True)
+        else:
+            lf_hash = ttk.LabelFrame(hashtab, text="Password Hash", padding=12)
+            lf_hash.pack(fill="both", expand=True, padx=12, pady=12)
+            ttk.Label(
+                lf_hash,
+                text=(
+                    "Password hashing panel is unavailable.\n\n"
+                    "Install dependencies: pip install flask-bcrypt bcrypt"
+                ),
+                justify="left",
+            ).pack(anchor="w")
 
     def _build_options(self, parent):
         # Output dir

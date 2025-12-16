@@ -11,63 +11,102 @@ from tkinter import ttk, messagebox
 try:
     from flask_bcrypt import Bcrypt
 except Exception as e:
-    raise SystemExit(
-        "Missing dependency: flask-bcrypt (and bcrypt). "
-        "Run: pip install flask-bcrypt bcrypt\n\n"
-        f"Details: {e}"
-    )
+    Bcrypt = None  # type: ignore[assignment]
+    _BCRYPT_IMPORT_ERROR = e
+else:
+    _BCRYPT_IMPORT_ERROR = None
+
+if Bcrypt is None:
+    HASHING_AVAILABLE = False
+    _BCRYPT_INIT_ERROR = _BCRYPT_IMPORT_ERROR
+else:
+    try:
+        _ = Bcrypt()
+    except Exception as e:
+        HASHING_AVAILABLE = False
+        _BCRYPT_INIT_ERROR = e
+    else:
+        HASHING_AVAILABLE = True
+        _BCRYPT_INIT_ERROR = None
 
 APP_TITLE = "Password Hash Generator"
 
-class HashApp(tk.Tk):
-    def __init__(self):
-        super().__init__()
-        self.title(APP_TITLE)
-        self.geometry("720x300")
-        self.minsize(680, 280)
+class HashPanel(ttk.Frame):
+    def __init__(self, parent):
+        super().__init__(parent, padding=12)
 
-        self.bcrypt = Bcrypt()
+        self._bcrypt = None
+        if HASHING_AVAILABLE and Bcrypt is not None:
+            try:
+                self._bcrypt = Bcrypt()
+            except Exception as e:
+                self._bcrypt = None
+                self._bcrypt_error = e
+            else:
+                self._bcrypt_error = None
+        else:
+            self._bcrypt_error = _BCRYPT_INIT_ERROR
 
-        # Input frame
-        frm_in = ttk.Frame(self, padding=12)
+        if self._bcrypt is None:
+            banner = tk.Label(
+                self,
+                text=(
+                    "Password hashing is unavailable because the dependency 'flask-bcrypt' (and 'bcrypt') "
+                    "is not installed or could not be initialized.\n\nInstall: pip install flask-bcrypt bcrypt"
+                ),
+                justify="left",
+                fg="firebrick",
+            )
+            banner.pack(fill="x", pady=(0, 10))
+
+        # Input
+        frm_in = ttk.Frame(self)
         frm_in.pack(fill="x")
 
         ttk.Label(frm_in, text="Password").grid(row=0, column=0, sticky="w")
         self.ent_pwd = ttk.Entry(frm_in, width=64)
-        self.ent_pwd.grid(row=0, column=1, columnspan=4, sticky="we", padx=(8,0))
+        self.ent_pwd.grid(row=0, column=1, columnspan=4, sticky="we", padx=(8, 0))
         frm_in.columnconfigure(4, weight=1)
 
-        ttk.Label(frm_in, text="Cost (rounds)").grid(row=1, column=0, sticky="w", pady=(8,0))
+        ttk.Label(frm_in, text="Cost (rounds)").grid(row=1, column=0, sticky="w", pady=(8, 0))
         self.spn_rounds = ttk.Spinbox(frm_in, from_=4, to=15, width=6)
         self.spn_rounds.set(12)
-        self.spn_rounds.grid(row=1, column=1, sticky="w", padx=(8,0), pady=(8,0))
+        self.spn_rounds.grid(row=1, column=1, sticky="w", padx=(8, 0), pady=(8, 0))
 
-        self.btn_gen  = ttk.Button(frm_in, text="Generate",  command=self.generate_hash)
-        self.btn_gen.grid(row=1, column=2, sticky="w", padx=(12,0), pady=(8,0))
+        self.btn_gen = ttk.Button(frm_in, text="Generate", command=self.generate_hash)
+        self.btn_gen.grid(row=1, column=2, sticky="w", padx=(12, 0), pady=(8, 0))
 
         self.btn_clear = ttk.Button(frm_in, text="Clear", command=self.clear_all)
-        self.btn_clear.grid(row=1, column=3, sticky="w", padx=(12,0), pady=(8,0))
+        self.btn_clear.grid(row=1, column=3, sticky="w", padx=(12, 0), pady=(8, 0))
 
         self.btn_copy = ttk.Button(frm_in, text="Copy hash", command=self.copy_hash)
-        self.btn_copy.grid(row=1, column=4, sticky="e", padx=(12,0), pady=(8,0))
+        self.btn_copy.grid(row=1, column=4, sticky="e", padx=(12, 0), pady=(8, 0))
 
-        # Output frame (smaller)
+        # Output
         frm_out = ttk.LabelFrame(self, text="password_hash", padding=12)
-        frm_out.pack(fill="both", expand=True, padx=12, pady=(0,12))
+        frm_out.pack(fill="both", expand=True, pady=(12, 0))
 
         self.txt_hash = tk.Text(frm_out, height=4, wrap="none")
         self.txt_hash.pack(fill="both", expand=True)
         self._set_output_state(disabled=True)
 
-        # Footer with tip + inline status (italic)
-        frm_foot = ttk.Frame(self, padding=(12,0,12,12))
-        frm_foot.pack(fill="x")
+        # Footer
+        frm_foot = ttk.Frame(self)
+        frm_foot.pack(fill="x", pady=(10, 0))
         ttk.Label(frm_foot, text="Paste this value in the password hash column of the mock Users table.").pack(anchor="w")
 
         italic = tkfont.nametofont("TkDefaultFont").copy()
         italic.configure(slant="italic")
         self.lbl_status = tk.Label(frm_foot, text="", font=italic, fg="gray25")
-        self.lbl_status.pack(anchor="w", pady=(6,0))
+        self.lbl_status.pack(anchor="w", pady=(6, 0))
+
+        if self._bcrypt is None:
+            self.btn_gen.configure(state="disabled")
+            self.set_status(
+                "Hashing is unavailable (missing dependency: flask-bcrypt). "
+                "Install: pip install flask-bcrypt bcrypt"
+            )
+            self._write_output("(Hashing unavailable)\nInstall: pip install flask-bcrypt bcrypt")
 
     def _set_output_state(self, disabled: bool):
         self.txt_hash.config(state=("disabled" if disabled else "normal"))
@@ -83,6 +122,14 @@ class HashApp(tk.Tk):
         self.lbl_status.config(text=msg)
 
     def generate_hash(self):
+        if self._bcrypt is None:
+            messagebox.showerror(
+                APP_TITLE,
+                "Missing dependency: flask-bcrypt (and bcrypt).\n\n"
+                "Install: pip install flask-bcrypt bcrypt",
+            )
+            return
+
         pwd = self.ent_pwd.get()
         try:
             rounds = int(self.spn_rounds.get())
@@ -98,7 +145,7 @@ class HashApp(tk.Tk):
             return
 
         try:
-            h = self.bcrypt.generate_password_hash(pwd, rounds=rounds).decode("utf-8")
+            h = self._bcrypt.generate_password_hash(pwd, rounds=rounds).decode("utf-8")
         except Exception as e:
             messagebox.showerror(APP_TITLE, f"Hashing error: {e}")
             return
@@ -126,6 +173,27 @@ class HashApp(tk.Tk):
         self.spn_rounds.set(12)
         self._write_output("")
         self.set_status("")
+
+
+class HashApp(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        self.title(APP_TITLE)
+        self.geometry("720x340")
+        self.minsize(680, 320)
+
+        if not HASHING_AVAILABLE:
+            self.after(
+                0,
+                lambda: messagebox.showwarning(
+                    APP_TITLE,
+                    "Password hashing is unavailable because 'flask-bcrypt' (and 'bcrypt') is not installed.\n\n"
+                    "Install: pip install flask-bcrypt bcrypt",
+                ),
+            )
+
+        panel = HashPanel(self)
+        panel.pack(fill="both", expand=True)
 
 if __name__ == "__main__":
     try:
