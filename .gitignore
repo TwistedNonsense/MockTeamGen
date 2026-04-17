@@ -29,6 +29,7 @@ venv/
 **/.idea/
 **/.vscode/
 *.history/
+.windsurf/
 
 # log files and databases
 logs/
