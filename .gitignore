@@ -81,3 +81,4 @@ credentials.json
 dev-stuff/
 mock_*.csv
 mock_*.json
+.ai/
