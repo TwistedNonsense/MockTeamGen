@@ -81,4 +81,14 @@ credentials.json
 dev-stuff/
 mock_*.csv
 mock_*.json
-.ai/
+
+
+# BEGIN shared agent configuration
+!.ai/
+!.ai/jarvis-protocol.md
+!.ai/task-summary-template.md
+.ai/task-summary.md
+.reviewer/
+.agent-config.json
+.agent-config-backups/
+# END shared agent configuration
